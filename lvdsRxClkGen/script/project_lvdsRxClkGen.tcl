@@ -36,8 +36,8 @@
 proc checkRequiredFiles { origin_dir} {
   set status true
   set files [list \
-   "/home/pcw1029/projects/xilinxLVDS/lvdsRxClkGen/rtl/lvdsRxClkGen.v" \
-   "/home/pcw1029/projects/xilinxLVDS/lvdsRxClkGen/testbench/tb_lvdsRxClkGen.v" \
+   "./rtl/lvdsRxClkGen.v" \
+   "./testbench/tb_lvdsRxClkGen.v" \
   ]
   foreach ifile $files {
     if { ![file isfile $ifile] } {
@@ -113,7 +113,7 @@ if { $::argc > 0 } {
 }
 
 # Set the directory path for the original project from where this script was exported
-set orig_proj_dir "[file normalize "$origin_dir/../project_lvdsRxClkGen"]"
+set orig_proj_dir "[file normalize "$origin_dir/project_lvdsRxClkGen"]"
 
 # Check for paths and files needed for project creation
 set validate_required 0
@@ -153,7 +153,7 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
 set files [list \
- [file normalize "${origin_dir}/../rtl/lvdsRxClkGen.v"] \
+ [file normalize "${origin_dir}/rtl/lvdsRxClkGen.v"] \
 ]
 add_files -norecurse -fileset $obj $files
 
@@ -189,7 +189,7 @@ if {[string equal [get_filesets -quiet sim_1] ""]} {
 # Set 'sim_1' fileset object
 set obj [get_filesets sim_1]
 set files [list \
- [file normalize "${origin_dir}/../testbench/tb_lvdsRxClkGen.v"] \
+ [file normalize "${origin_dir}/testbench/tb_lvdsRxClkGen.v"] \
 ]
 add_files -norecurse -fileset $obj $files
 
