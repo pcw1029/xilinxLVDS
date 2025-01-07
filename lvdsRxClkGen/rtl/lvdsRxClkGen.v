@@ -80,11 +80,12 @@
 `timescale 1ps/1ps
 
 module lvdsRxClkGen # (
-      parameter real    CLKIN_PERIOD = 6.600,      // Clock period (ns) of input clock on clkin_p
-      parameter real    REF_FREQ     = 300.0,      // Reference clock frequency for idelay control
-      parameter         DIFF_TERM    = "FALSE",    // Enable internal LVDS termination
-      parameter         USE_PLL      = "FALSE",    // Selects either PLL or MMCM for clocking
-      parameter         CLK_PATTERN  = 7'b1100011  // Clock pattern for alignment
+      parameter real    CLKIN_PERIOD        = 12.5,      // Clock period (ns) of input clock on clkin_p
+      parameter real    IDELAYE3_REF_FREQ   = 300.0,      // Reference clock frequency for idelay control
+      parameter         LANE_NUM            = 4,
+      parameter         DIFF_TERM           = "FALSE",    // Enable internal LVDS termination
+      parameter         USE_PLL             = "FALSE",    // Selects either PLL or MMCM for clocking
+      parameter         CLK_PATTERN         = 8'b00110011  // Clock pattern for alignment
    )
    (
       input             clkin_p,              // Clock input LVDS P-side
@@ -93,7 +94,7 @@ module lvdsRxClkGen # (
       input             idelay_rdy,           // Asyncrhonous IDELAYCRL ready
       //
       output            rx_clkdiv2,           // RX clock div2 output
-      output            rx_clkdiv8,           // RX clock div8 output
+      output            rx_clkdiv4,           // RX clock div8 output
       output            cmt_locked,           // PLL/MMCM locked output
       output     [4:0]  rx_wr_addr,           // RX write_address output
       output reg [8:0]  rx_cntval,            // RX input delay count value output
@@ -112,8 +113,8 @@ module lvdsRxClkGen # (
 //  2  - if clock_period is greater than 600 MHz/7 
 //  1  - if clock period is <= 600 MHz/7  
 //
-localparam VCO_MULTIPLIER = (CLKIN_PERIOD >11.666) ? 2 : 1 ;
-localparam DELAY_VALUE    = ((CLKIN_PERIOD*1000)/7 <= 1250.0) ? (CLKIN_PERIOD*1000)/7 : 1250.0;
+localparam VCO_MULTIPLIER = (CLKIN_PERIOD > 6.667) ? 2 : 1 ;
+localparam DELAY_VALUE    = ((CLKIN_PERIOD*1000)/LANE_NUM <= 1250.0) ? (CLKIN_PERIOD*1000)/LANE_NUM : 1250.0;
 
 wire       clkin_p_i;
 wire       clkin_n_i;
@@ -159,10 +160,9 @@ wire       px_rx_ready;
 reg  [4:0] px_rd_count;
 wire [7:0] px_rd_curr;
 reg  [7:1] px_rd_last;
-reg  [6:0] px_data;
+reg  [7:0] px_data;
 reg  [2:0] px_state;
 reg  [2:0] px_correct;
-reg        px_rd_enable;
 wire [3:0] px_rd_addr_int;
 reg        px_ready_int;
 
@@ -187,7 +187,7 @@ if (USE_PLL == "FALSE") begin    // use an MMCM
    MMCME3_BASE # (
          .CLKIN1_PERIOD      (CLKIN_PERIOD),
          .BANDWIDTH          ("OPTIMIZED"),
-         .CLKFBOUT_MULT_F    (7*VCO_MULTIPLIER),
+         .CLKFBOUT_MULT_F    (LANE_NUM*VCO_MULTIPLIER),
          .CLKFBOUT_PHASE     (0.0),
          .CLKOUT0_DIVIDE_F   (2*VCO_MULTIPLIER),
          .CLKOUT0_DUTY_CYCLE (0.5),
@@ -219,7 +219,7 @@ if (USE_PLL == "FALSE") begin    // use an MMCM
    else begin           // Use a PLL
    PLLE3_BASE # (
          .CLKIN_PERIOD       (CLKIN_PERIOD),
-         .CLKFBOUT_MULT      (7*VCO_MULTIPLIER),
+         .CLKFBOUT_MULT      (LANE_NUM*VCO_MULTIPLIER),
          .CLKFBOUT_PHASE     (0.0),
          .CLKOUT0_DIVIDE     (2*VCO_MULTIPLIER),
          .CLKOUT0_DUTY_CYCLE (0.5),
@@ -249,20 +249,20 @@ endgenerate
 BUFG  bg_px     (.I(px_pllmmcm),      .O(px_clk)) ;
 BUFG  bg_rxdiv2 (.I(rx_pllmmcm_div2), .O(rx_clkdiv2)) ;
 BUFGCE_DIV  # (
-       .BUFGCE_DIVIDE(4)
+       .BUFGCE_DIVIDE(2)
      )
-     bg_rxdiv8 (
+     bg_rxdiv4 (
        .I(rx_pllmmcm_div2),
        .CLR(!cmt_locked),
        .CE(1'b1),
-       .O(rx_clkdiv8)
+       .O(rx_clkdiv4)
       );
 
 //
-// Synchronize locked to rx_clkdiv8
+// Synchronize locked to rx_clkdiv4
 //
 assign locked_and_idlyrdy = cmt_locked & idelay_rdy;
-always @ (posedge rx_clkdiv8 or negedge locked_and_idlyrdy)
+always @ (posedge rx_clkdiv4 or negedge locked_and_idlyrdy)
 begin
    if (!locked_and_idlyrdy)
        rx_reset_sync <= 4'b1111;
@@ -293,14 +293,14 @@ IDELAYE3 # (
       .CASCADE          ("NONE"),
       .DELAY_TYPE       ("VAR_LOAD"),
       .DELAY_VALUE      (DELAY_VALUE),
-      .REFCLK_FREQUENCY (REF_FREQ),   
+      .REFCLK_FREQUENCY (IDELAYE3_REF_FREQ),   
       .DELAY_FORMAT     ("TIME"),
       .UPDATE_MODE      ("ASYNC")
    )
    idelay_cm (
       .IDATAIN          (clkin_p_i),
       .DATAOUT          (clkin_p_d),
-      .CLK              (rx_clkdiv8),
+      .CLK              (rx_clkdiv4),
       .CE               (1'b0),
       .RST              (!cmt_locked),
    // .RST              (Mstr_IdlyRst & idelay_rdy),
@@ -323,14 +323,14 @@ IDELAYE3 # (
       .CASCADE          ("NONE"),
       .DELAY_TYPE       ("VAR_LOAD"),
       .DELAY_VALUE      (DELAY_VALUE),
-      .REFCLK_FREQUENCY (REF_FREQ),     
+      .REFCLK_FREQUENCY (IDELAYE3_REF_FREQ),     
       .DELAY_FORMAT     ("TIME"),
       .UPDATE_MODE      ("ASYNC")
    )
    idelay_cs (
       .IDATAIN          (clkin_n_i),
       .DATAOUT          (clkin_n_d),
-      .CLK              (rx_clkdiv8),
+      .CLK              (rx_clkdiv4),
       .CE               (1'b0),
       .RST              (!cmt_locked),
       .INC              (1'b0),
@@ -358,7 +358,7 @@ ISERDESE3 #(
        .RST            (rx_reset),
        .CLK            ( rx_clkdiv2),
        .CLK_B          (~rx_clkdiv2),
-       .CLKDIV         ( rx_clkdiv8),
+       .CLKDIV         ( rx_clkdiv4),
        .Q              (Mstr_Data),
        .FIFO_RD_CLK    (1'b0),
        .FIFO_RD_EN     (1'b0),
@@ -381,7 +381,7 @@ ISERDESE3 #(
        .RST            (rx_reset),
        .CLK            ( rx_clkdiv2),
        .CLK_B          (~rx_clkdiv2),
-       .CLKDIV         ( rx_clkdiv8),
+       .CLKDIV         ( rx_clkdiv4),
        .Q              (Slve_Data_inv),
        .FIFO_RD_CLK    (1'b0),
        .FIFO_RD_EN     (1'b0),
@@ -485,7 +485,7 @@ assign PhaseDet_Dec =
 //
 // Alexander Bang Bang Phase Detector
 //
-always @ (posedge rx_clkdiv8) begin
+always @ (posedge rx_clkdiv4) begin
    if (rx_reset == 1'b1) begin
       pd_count          <= 5'd16;  // Decimal 16
       pd_ovflw_down     <= 1'b0;   //
@@ -516,7 +516,7 @@ end
 //
 // Dynamic Alignment State Machine for increments/decrements
 //
-always @ (posedge rx_clkdiv8) begin
+always @ (posedge rx_clkdiv4) begin
    if (rx_reset) begin
       rx_state          <= 5'h0;
       Mstr_CntVal_In    <= 9'b0;
@@ -563,7 +563,7 @@ always @ (posedge rx_clkdiv8) begin
          //
          // 7 - Store bit time value 6 cycles after reset complete
          //
-         5'h07 :  begin
+         5'h08 :  begin
             if (Mstr_CntVal_Out < 64 ) begin
                rx_state    <= 5'h01;
             end
@@ -716,7 +716,7 @@ end
 //
 //  RX write address counter
 //
-always @ (posedge rx_clkdiv8)
+always @ (posedge rx_clkdiv4)
 begin
     if (rx_reset)
         rx_wr_count <= 5'h4;
@@ -733,8 +733,7 @@ always @ (posedge px_clk)
 begin
     if (px_reset) begin
        px_rd_count <= 5'h0;
-       end
-    else if (px_rd_seq != 3'h6) begin
+    end else begin
        // Increment counter except when the read sequence is 6
        px_rd_count <= px_rd_count + 1'b1;
     end
@@ -744,7 +743,7 @@ assign px_rd_addr = px_rd_count;
 //
 // Register data from ISERDES
 //
-always @ (posedge rx_clkdiv8)
+always @ (posedge rx_clkdiv4)
 begin
    rx_wr_data <= Mstr_Data;
 end
@@ -757,7 +756,7 @@ generate
 for (i = 0 ; i < 8 ; i = i+1) begin : bit
   RAM32X1D fifo (
      .D     (rx_wr_data[i]),
-     .WCLK  (rx_clkdiv8),
+     .WCLK  (rx_clkdiv4),
      .WE    (1'b1),
      .A4    (rx_wr_addr[4]),
      .A3    (rx_wr_addr[3]),
@@ -791,36 +790,10 @@ end
 always @ (posedge px_clk)
 begin
     if (px_reset) begin
-       px_rd_seq <= 3'b0;
+       px_data <= 8'b0;
        end
     else  begin
-       px_rd_seq <= px_rd_seq + px_rd_enable;
-       case (px_rd_seq )
-         3'h0 : begin
-            px_data <= px_rd_curr[6:0];
-            end
-         3'h1 : begin
-            px_data <= {px_rd_curr[5:0], px_rd_last[7]};
-            end
-         3'h2 : begin
-            px_data <= {px_rd_curr[4:0], px_rd_last[7:6]};
-            end
-         3'h3 : begin
-            px_data <= {px_rd_curr[3:0], px_rd_last[7:5]};
-            end
-         3'h4 : begin
-            px_data <= {px_rd_curr[2:0], px_rd_last[7:4]};
-            end
-         3'h5 : begin
-            px_data <= {px_rd_curr[1:0], px_rd_last[7:3]};
-            end
-         3'h6 : begin
-            px_data <= {px_rd_curr[0],   px_rd_last[7:2]};
-            end
-         3'h7 : begin
-            px_data <= {px_rd_last[7:1]};
-            end
-       endcase
+       px_data <= px_rd_curr;
     end
 end
 
@@ -846,7 +819,6 @@ assign px_rx_ready = px_rx_ready_sync[0];
 always @ (posedge px_clk) begin
    if (px_reset) begin
       px_state          <= 3'h1;
-      px_rd_enable      <= 1'b0;
       px_ready_int      <= 1'b0;
       px_correct        <= 3'h0;
    end else if (px_rx_ready) begin
@@ -859,15 +831,13 @@ always @ (posedge px_clk) begin
          //
          3'h0: begin
             if (px_data == CLK_PATTERN) begin
-               px_rd_enable <= 1'b1;            // Enable read sequencer
                px_correct   <= px_correct + 1'b1;
                if (px_correct == 3'h7) begin
-                  px_state  <= 3'h7;            // 0x7 - End state
+                  px_state  <= 3'h8;            // 0x7 - End state
                end
             end
             else begin
                px_correct   <= 3'h0;
-               px_rd_enable <= 1'b0;            // Disable read sequencer to slip alignment
                px_state     <= px_state + 1'b1; // 0x1 - Re-enable and wait 6 cycles
             end
          end
@@ -875,28 +845,24 @@ always @ (posedge px_clk) begin
          // 0x1 - Re-enable read sequencer
          //
          3'h1: begin
-            px_rd_enable  <= 1'b1;              // Enable read sequencer
             px_state      <= px_state + 1'b1;   // Increment to next state
          end
          //
          // 0x6 - Return to alignment check
          //
-         3'h6: begin
-            px_rd_enable  <= 1'b1;              // Enable ready sequencer
+         3'h7: begin
             px_state      <= 3'h0;              // 0x0 - Check alignment
          end
          //
          // 0x7 - End state
          //
-         3'h7 : begin
-            px_rd_enable  <= 1'b1;              // Enable ready sequencer
+         3'h8 : begin
             px_ready_int  <= 1'b1;              // Assert pixel ready
          end
          //
          // Default state
          //
          default: begin
-            px_rd_enable  <= 1'b1;              // Enable read sequencer
             px_state      <= px_state + 1'b1;   // Increment to next state
          end
       endcase
